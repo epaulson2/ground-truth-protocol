@@ -1,0 +1,62 @@
+{
+  "$schema": "https://code.claude.com/schemas/hooks.json",
+  "_comment": "Ground Truth Protocol — Claude Code Hook Configuration",
+  "_docs": "https://github.com/epaulson2/ground-truth-protocol",
+
+  "hooks": {
+    "SessionStart": [
+      {
+        "name": "ground-truth-probe",
+        "command": "./scripts/ground-truth-probe.sh",
+        "timeout_ms": 10000,
+        "description": "Injects current project state (database, services, git, credentials) into agent context at session start"
+      }
+    ],
+
+    "PreToolUse": [
+      {
+        "name": "gate-no-duplicate-database",
+        "match_tool": "Bash",
+        "match_command": "CREATE DATABASE|createdb|initdb",
+        "command": "./scripts/assertion-gate.sh database ${DB_NAME:-mydb}",
+        "timeout_ms": 5000,
+        "description": "Blocks database creation if database already exists"
+      },
+      {
+        "name": "gate-no-duplicate-table",
+        "match_tool": "Bash",
+        "match_command": "CREATE TABLE",
+        "command": "./scripts/assertion-gate.sh table",
+        "timeout_ms": 5000,
+        "description": "Blocks table creation if table already exists"
+      },
+      {
+        "name": "gate-no-deploy-without-tests",
+        "match_tool": "Bash",
+        "match_command": "deploy|systemctl.*restart|docker.*push",
+        "command": "./scripts/assertion-gate.sh env 'CI_TESTS_PASSED'",
+        "timeout_ms": 5000,
+        "description": "Blocks deployment if tests have not passed in this session"
+      }
+    ],
+
+    "PostToolUse": [
+      {
+        "name": "log-spec-reads",
+        "match_tool": "Read",
+        "match_file": "docs/design/**",
+        "command": "mkdir -p .ground-truth && echo \"READ_SPEC: ${FILE_PATH} $(date -Iseconds)\" >> .ground-truth/session.log",
+        "timeout_ms": 2000,
+        "description": "Logs when design spec documents are read for spec-before-code verification"
+      },
+      {
+        "name": "warn-code-without-spec",
+        "match_tool": "Write",
+        "match_file": "src/**/*.{py,ts,tsx,js,jsx}",
+        "command": "if [ ! -f .ground-truth/session.log ] || ! grep -q 'READ_SPEC:' .ground-truth/session.log 2>/dev/null; then echo 'WARNING: Writing code without reading a spec document first. Rule: Spec before code.'; fi",
+        "timeout_ms": 2000,
+        "description": "Warns if source code is written without any spec having been read in this session"
+      }
+    ]
+  }
+}
